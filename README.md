@@ -20,8 +20,20 @@ jsou vidět i na hlavní stránce webu.
   která kontrolu spouští automaticky 2× denně (výchozí čas 8:00 a 20:00 UTC).
 - **`app/api/check-prices/route.ts`** – stejná kontrola dostupná i ručně přes
   HTTP (pro testování nebo manuální trigger).
-- **`app/page.tsx`** – jednoduchá stránka s tabulkou aktuálních nejnižších
-  cen a časem poslední kontroly.
+- **`app/page.tsx`** – stránka s panely aktuálních nejnižších cen, obrázkem
+  modelu a vyhledáváním (klik na panel vede na nabídku), plus tlačítko
+  "Obnovit ceny" pro ruční kontrolu.
+- **`app/actions.ts`** – Server Action `refreshPricesAction`, kterou volá
+  tlačítko "Obnovit ceny"; ruční obnovení je omezené na jednou za 3 hodiny
+  (sdíleně, ne per-uživatel – ochrana proti zbytečnému zatěžování Heureky/
+  Discordu, i kdyby login znal víc lidí).
+- **`proxy.ts`** – zahesluje celý web (mimo `/login` a `/api`) vlastní
+  přihlašovací stránkou, pokud jsou nastavené `SITE_USERNAME`/`SITE_PASSWORD`
+  (jinak je web bez omezení). Přihlášení nastaví podepsanou cookie platnou
+  30 dní; `lib/auth.ts` má logiku pro podpis/ověření a porovnání hesla.
+- **`app/login/`** – vlastní login formulář (`LoginForm.tsx` je klientská
+  komponenta s `useActionState` pro chybovou hlášku a stav odesílání,
+  `page.tsx` obsahuje Server Action, který ověří heslo a nastaví cookie).
 
 Kontrola vždy porovnává novou cenu s cenou z **předchozí** kontroly (ne s
 historickým minimem) – po každém běhu se uložená cena přepíše na aktuální,
@@ -46,9 +58,13 @@ npm install
 | --- | --- | --- |
 | `DISCORD_WEBHOOK_URL` | Ano | URL Discord webhooku pro odesílání upozornění na pokles ceny. |
 | `CRON_SECRET` | Ne | Pokud nastaveno, `/api/check-prices` vyžaduje `?secret=...` v URL – doporučeno, protože jinak je endpoint veřejně spustitelný kýmkoliv. |
+| `SITE_USERNAME` / `SITE_PASSWORD` | Ne | Pokud jsou obě nastavené, web (mimo `/login` a `/api/check-prices`, který má vlastní `CRON_SECRET`) vyžaduje přihlášení přes `/login` – vlastní formulář, ne prohlížečové okno. Bez nich je web veřejně přístupný. **Doporučeno nastavit na produkci**, jinak je stránka s cenami veřejná pro kohokoliv. |
 
 Lokálně je můžeš dát do `.env` (Next.js) / `.env` pro Netlify CLI. Na Netlify
-je nastav v **Site configuration → Environment variables**.
+je nastav v **Site configuration → Environment variables** – `SITE_USERNAME`
+a `SITE_PASSWORD` tam nastav zvlášť pečlivě, ať na produkci web nezůstane
+nezaheslovaný. Přihlašovací cookie je podepsaná hodnotou `SITE_PASSWORD`, takže
+změna hesla automaticky odhlásí všechny existující session.
 
 ### 4. Netlify Blobs
 
@@ -73,15 +89,21 @@ scheduled function lokálně. Kontrolu cen pak můžeš vyvolat ručně:
 curl "http://localhost:8888/api/check-prices?secret=TVUJ_CRON_SECRET"
 ```
 
+`/api/check-prices` není chráněné přihlašovací stránkou (jen `CRON_SECRET`),
+takže výše uvedený curl funguje i se zapnutým `SITE_USERNAME`/`SITE_PASSWORD`.
+Pro prohlížení webu (`/`) se přihlas přes `http://localhost:8888/login`.
+
 Bez `netlify dev` (jen `npm run dev`) appka běží, ale endpoint i domovská
-stránka nahlásí, že Blobs nejsou dostupné.
+stránka nahlásí, že Blobs nejsou dostupné. `netlify dev` navíc načítá `.env`
+jen při startu – po úpravě proměnných je potřeba ho restartovat.
 
 ## Nasazení na Netlify
 
 1. Push repozitáře na GitHub/GitLab a v Netlify vytvoř nový site z tohoto
    repozitáře (Netlify automaticky rozpozná Next.js).
 2. V **Site configuration → Environment variables** nastav
-   `DISCORD_WEBHOOK_URL` (a volitelně `CRON_SECRET`).
+   `DISCORD_WEBHOOK_URL` a doporučeně i `SITE_USERNAME`/`SITE_PASSWORD`
+   (a volitelně `CRON_SECRET`).
 3. Nasaď. Scheduled function `check-prices` se aktivuje automaticky podle
    `netlify/functions/check-prices.mts` – žádná další konfigurace není
    potřeba.

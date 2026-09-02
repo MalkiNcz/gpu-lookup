@@ -10,6 +10,7 @@ export type ScrapedProduct = {
   name: string;
   price: number;
   url: string;
+  image: string | null;
 };
 
 function parsePrice(rawText: string): number | null {
@@ -44,10 +45,11 @@ function parseListingPage(html: string): ScrapedProduct[] {
     const href = link.attr("href");
     const priceText = $item.find('[data-testid="product-price"]').first().text();
     const price = parsePrice(priceText);
+    const image = $item.find('a[data-testid="product-image-link"] img').first().attr("src") ?? null;
 
     if (!name || !href || price === null) return;
 
-    items.push({ id: slugify(name), name, price, url: href });
+    items.push({ id: slugify(name), name, price, url: href, image });
   });
 
   return items;

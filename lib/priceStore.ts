@@ -4,17 +4,19 @@ export type PriceRecord = {
   name: string;
   price: number;
   url: string;
+  image: string | null;
 };
 
 export type PriceData = {
   lastRun: string;
+  lastManualRefresh: string;
   items: Record<string, PriceRecord>;
 };
 
 const STORE_NAME = "gpu-prices";
 const KEY = "rx-9070-xt.json";
 
-const EMPTY_DATA: PriceData = { lastRun: "", items: {} };
+const EMPTY_DATA: PriceData = { lastRun: "", lastManualRefresh: "", items: {} };
 
 function store() {
   return getStore(STORE_NAME);

@@ -8,7 +8,9 @@ export type CheckResult = {
   newProducts: number;
 };
 
-export async function runPriceCheck(): Promise<CheckResult> {
+const MANUAL_REFRESH_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+
+export async function runPriceCheck(options: { manual?: boolean } = {}): Promise<CheckResult> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
     throw new Error("Chybí proměnná prostředí DISCORD_WEBHOOK_URL");
@@ -38,11 +40,41 @@ export async function runPriceCheck(): Promise<CheckResult> {
       });
     }
 
-    nextItems[product.id] = { name: product.name, price: product.price, url: product.url };
+    nextItems[product.id] = {
+      name: product.name,
+      price: product.price,
+      url: product.url,
+      image: product.image,
+    };
   }
 
   await notifyDiscord(webhookUrl, drops);
-  await writePrices({ lastRun: new Date().toISOString(), items: nextItems });
+
+  const now = new Date().toISOString();
+  await writePrices({
+    lastRun: now,
+    lastManualRefresh: options.manual ? now : stored.lastManualRefresh,
+    items: nextItems,
+  });
 
   return { checked: scraped.length, drops: drops.length, newProducts };
+}
+
+export type ManualRefreshResult =
+  | { ok: true; result: CheckResult }
+  | { ok: false; retryAfterMs: number };
+
+// Global cooldown (shared across everyone behind the login), so the button
+// can't be used to hammer Heureka or spam the Discord webhook.
+export async function requestManualRefresh(): Promise<ManualRefreshResult> {
+  const stored = await readPrices();
+  const lastMs = stored.lastManualRefresh ? new Date(stored.lastManualRefresh).getTime() : 0;
+  const elapsed = Date.now() - lastMs;
+
+  if (elapsed < MANUAL_REFRESH_COOLDOWN_MS) {
+    return { ok: false, retryAfterMs: MANUAL_REFRESH_COOLDOWN_MS - elapsed };
+  }
+
+  const result = await runPriceCheck({ manual: true });
+  return { ok: true, result };
 }
