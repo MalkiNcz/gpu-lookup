@@ -57,23 +57,33 @@ function parseListingPage(html: string): ScrapedProduct[] {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type FetchResult = { html: string } | { failure: string };
+
 // Heureka sits behind Cloudflare bot protection, which can occasionally
 // answer a legitimate request with a transient 403. One short-delayed retry
 // clears most of those without risking the scheduled function's 30s budget.
-async function fetchPage(url: string): Promise<string | null> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Accept-Language": "cs-CZ,cs;q=0.9",
-      },
-    });
+async function fetchPage(url: string): Promise<FetchResult> {
+  let failure = "neznámá chyba";
 
-    if (res.ok) return res.text();
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Accept-Language": "cs-CZ,cs;q=0.9",
+        },
+      });
+
+      if (res.ok) return { html: await res.text() };
+      failure = `HTTP ${res.status} ${res.statusText}`;
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+
     if (attempt < 2) await sleep(1500);
   }
 
-  return null;
+  return { failure };
 }
 
 export async function scrapeAllPrices(): Promise<ScrapedProduct[]> {
@@ -81,10 +91,19 @@ export async function scrapeAllPrices(): Promise<ScrapedProduct[]> {
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const pageUrl = page === 1 ? LISTING_URL : `${LISTING_URL}?f=${page}`;
-    const html = await fetchPage(pageUrl);
-    if (html === null) break;
+    const fetched = await fetchPage(pageUrl);
 
-    const pageItems = parseListingPage(html);
+    if ("failure" in fetched) {
+      // Page 1 failing to fetch at all is a distinct problem (blocked/
+      // network) from later pages running out (normal end of pagination) or
+      // page 1 parsing to zero items (Heureka's markup changed).
+      if (page === 1) {
+        throw new Error(`Nepodařilo se stáhnout stránku Heureka (${fetched.failure})`);
+      }
+      break;
+    }
+
+    const pageItems = parseListingPage(fetched.html);
     if (pageItems.length === 0) break;
 
     for (const item of pageItems) found.set(item.id, item);
