@@ -34,7 +34,7 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function parseListingPage(html: string): ScrapedProduct[] {
+function parseListingPage(html: string): { items: ScrapedProduct[]; hasNextPage: boolean } {
   const $ = cheerio.load(html);
   const items: ScrapedProduct[] = [];
 
@@ -52,28 +52,46 @@ function parseListingPage(html: string): ScrapedProduct[] {
     items.push({ id: slugify(name), name, price, url: href, image });
   });
 
-  return items;
+  const hasNextPage = $('[data-testid="pagination-show-more-products-button"]').length > 0;
+
+  return { items, hasNextPage };
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type FetchResult = { html: string } | { failure: string };
 
-// Heureka sits behind Cloudflare bot protection, which can occasionally
-// answer a legitimate request with a transient 403. One short-delayed retry
-// clears most of those without risking the scheduled function's 30s budget.
+// Netlify Functions run from shared cloud IPs that Cloudflare (fronting
+// Heureka) can flag persistently, not just transiently — so when configured,
+// route the request through a scraping proxy (e.g. ScraperAPI) instead of
+// fetching Heureka directly. See README for setup and credit-cost notes.
+const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY;
+const SCRAPER_API_PREMIUM = process.env.SCRAPER_API_PREMIUM === "true";
+
+function buildRequestUrl(targetUrl: string): string {
+  if (!SCRAPER_API_KEY) return targetUrl;
+
+  const proxyUrl = new URL("https://api.scraperapi.com/");
+  proxyUrl.searchParams.set("api_key", SCRAPER_API_KEY);
+  proxyUrl.searchParams.set("url", targetUrl);
+  if (SCRAPER_API_PREMIUM) proxyUrl.searchParams.set("premium", "true");
+  return proxyUrl.toString();
+}
+
+// One short-delayed retry clears most transient failures without risking
+// the scheduled function's 30s budget.
 async function fetchPage(url: string): Promise<FetchResult> {
+  const requestUrl = buildRequestUrl(url);
+  // The proxy sets its own appropriate headers for the upstream request.
+  const headers = SCRAPER_API_KEY
+    ? undefined
+    : { "User-Agent": USER_AGENT, "Accept-Language": "cs-CZ,cs;q=0.9" };
+
   let failure = "neznámá chyba";
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Accept-Language": "cs-CZ,cs;q=0.9",
-        },
-      });
-
+      const res = await fetch(requestUrl, headers ? { headers } : undefined);
       if (res.ok) return { html: await res.text() };
       failure = `HTTP ${res.status} ${res.statusText}`;
     } catch (error) {
@@ -103,10 +121,12 @@ export async function scrapeAllPrices(): Promise<ScrapedProduct[]> {
       break;
     }
 
-    const pageItems = parseListingPage(fetched.html);
+    const { items: pageItems, hasNextPage } = parseListingPage(fetched.html);
     if (pageItems.length === 0) break;
 
     for (const item of pageItems) found.set(item.id, item);
+
+    if (!hasNextPage) break;
   }
 
   return [...found.values()];

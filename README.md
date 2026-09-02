@@ -59,6 +59,8 @@ npm install
 | `DISCORD_WEBHOOK_URL` | Ano | URL Discord webhooku pro odesílání upozornění na pokles ceny. |
 | `CRON_SECRET` | Ne | Pokud nastaveno, `/api/check-prices` vyžaduje `?secret=...` v URL – doporučeno, protože jinak je endpoint veřejně spustitelný kýmkoliv. |
 | `SITE_USERNAME` / `SITE_PASSWORD` | Ne | Pokud jsou obě nastavené, web (mimo `/login` a `/api/check-prices`, který má vlastní `CRON_SECRET`) vyžaduje přihlášení přes `/login` – vlastní formulář, ne prohlížečové okno. Bez nich je web veřejně přístupný. **Doporučeno nastavit na produkci**, jinak je stránka s cenami veřejná pro kohokoliv. |
+| `SCRAPER_API_KEY` | Doporučeno na Netlify | API klíč pro [ScraperAPI](https://www.scraperapi.com/) – viz sekce [Scrapování z Netlify](#scrapování-z-netlify-scraperapi) níže. Bez něj appka stahuje Heureku napřímo, což z Netlify skoro jistě skončí HTTP 403. |
+| `SCRAPER_API_PREMIUM` | Ne | Nastav na `true`, pokud i se `SCRAPER_API_KEY` dostáváš 403 – zapne dražší "premium" bypass režim ScraperAPI (víc kreditů za request, viz níže). |
 
 Lokálně je můžeš dát do `.env` (Next.js) / `.env` pro Netlify CLI. Na Netlify
 je nastav v **Site configuration → Environment variables** – `SITE_USERNAME`
@@ -110,14 +112,43 @@ jen při startu – po úpravě proměnných je potřeba ho restartovat.
 4. Frekvenci/čas kontroly změníš úpravou `schedule` v
    `netlify/functions/check-prices.mts` (cron je vždy v UTC).
 
-## Poznámka ke spolehlivosti scrapování
+## Scrapování z Netlify (ScraperAPI)
 
-Heureka.cz je za Cloudflare ochranou proti botům, která může výjimečně
-vrátit dočasnou chybu 403 i na legitimní požadavek. Scraper to řeší jedním
-opakováním s prodlevou; pokud selže i tak, kontrola se bez zápisu ukončí a
-nic se nepřepíše ani neodešle – další běh (za cca 12 hodin) proběhne
-normálně. Pravidelný provoz 2× denně je vůči tomuto typu ochrany výrazně
-šetrnější než časté/rychlé dotazy.
+Heureka.cz je za Cloudflare ochranou proti botům. Ta má dvě úrovně:
+
+- **Transientní blokace** – výjimečná, dočasná 403 i na legitimní požadavek.
+  Tu řeší jedno opakování s prodlevou přímo v `lib/heureka.ts`.
+- **Trvalá blokace podle IP reputace** – Netlify Functions běží ze sdílených
+  cloudových (AWS) IP adres, které Cloudflare u agregátorů jako Heureka
+  typicky blokuje napořád, ne jen občas. Lokálně (z běžného domácího
+  připojení) appka funguje bez problémů, ale nasazená na Netlify dostane
+  konzistentní `HTTP 403 Forbidden`.
+
+Řešení: nastav `SCRAPER_API_KEY` a požadavky na Heureku půjdou přes
+[ScraperAPI](https://www.scraperapi.com/), který je routuje přes
+rezidentní/rotující IP adresy.
+
+1. Založ si účet na scraperapi.com (free plán: 1 000 kreditů/měsíc) a zkopíruj
+   API klíč.
+2. Nastav `SCRAPER_API_KEY` v `.env` i na Netlify.
+3. Vyzkoušej – klidně bez `SCRAPER_API_PREMIUM` (běžná stránka stojí 1
+   kredit). Pokud dostáváš 403 i přes proxy, nastav `SCRAPER_API_PREMIUM=true`
+   (zapne dražší bypass mód, ~10 kreditů/request).
+
+**Odhad spotřeby kreditů**: scraper stahuje typicky 2 stránky za kontrolu
+(pagination se zastaví, jakmile na Heurece dojdou další modely). Při 2×
+denně automaticky + občasném ručním "Obnovit ceny" (max 8×/den kvůli
+3hodinovému limitu) je to řádově 4–20 requestů/den = 4–20 kreditů/den v
+základním režimu, klidně v mezích free plánu. V premium režimu (10 kreditů/
+request) to může být kolem 1200 kreditů/měsíc jen z automatických běhů – nad
+free plánem, čemuž je dobré předejít otestováním základního režimu jako
+prvního kroku. `sa-credit-cost` hlavička v odpovědi ScraperAPI ukazuje
+skutečnou cenu konkrétního requestu, pokud chceš spotřebu sledovat přesně.
+
+Bez `SCRAPER_API_KEY` appka stahuje Heureku napřímo (funguje pro lokální
+vývoj). Pokud scraping i tak selže, kontrola se bez zápisu ukončí – nic se
+nepřepíše ani neodešle na Discord, další běh (za cca 12 hodin, nebo ruční
+klik) proběhne normálně.
 
 ## Přehled produktů
 
