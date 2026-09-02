@@ -14,7 +14,8 @@ async function checkPricesHandler() {
 
 export default checkPricesHandler;
 
-// Twice a day, 08:00 and 20:00 UTC. Cron times are always UTC on Netlify.
+// Once a day at 13:00 UTC — 14:00/15:00 in Czech time depending on DST, i.e.
+// afternoon. Cron times are always UTC on Netlify.
 export const config: Config = {
-  schedule: "0 8,20 * * *",
+  schedule: "0 13 * * *",
 };

@@ -1,8 +1,8 @@
 # RX 9070 XT – hlídač cen
 
 Sleduje ceny všech dostupných modelů grafické karty **AMD RX 9070 XT** na
-[Heureka.cz](https://graficke-karty.heureka.cz/f:2642:82902041/) a 2× denně
-kontroluje, jestli u některého modelu neklesla cena pod naposledy zaznamenanou
+[Heureka.cz](https://graficke-karty.heureka.cz/f:2642:82902041/) a 1× denně
+odpoledne kontroluje, jestli u některého modelu neklesla cena pod naposledy zaznamenanou
 hodnotu. Pokud ano, pošle upozornění na Discord webhook. Poslední známé ceny
 jsou vidět i na hlavní stránce webu.
 
@@ -17,7 +17,8 @@ jsou vidět i na hlavní stránce webu.
 - **`lib/checkPrices.ts`** – spojí předchozí kroky dohromady (scrape →
   porovnání s uloženými cenami → notifikace → uložení nových cen).
 - **`netlify/functions/check-prices.mts`** – [Netlify Scheduled Function](https://docs.netlify.com/build/functions/scheduled-functions/),
-  která kontrolu spouští automaticky 2× denně (výchozí čas 8:00 a 20:00 UTC).
+  která kontrolu spouští automaticky 1× denně (výchozí čas 13:00 UTC, tj.
+  odpoledne v ČR).
 - **`app/api/check-prices/route.ts`** – stejná kontrola dostupná i ručně přes
   HTTP (pro testování nebo manuální trigger).
 - **`app/page.tsx`** – stránka s panely aktuálních nejnižších cen, obrázkem
@@ -128,27 +129,32 @@ Heureka.cz je za Cloudflare ochranou proti botům. Ta má dvě úrovně:
 [ScraperAPI](https://www.scraperapi.com/), který je routuje přes
 rezidentní/rotující IP adresy.
 
-1. Založ si účet na scraperapi.com (free plán: 1 000 kreditů/měsíc) a zkopíruj
-   API klíč.
+1. Založ si účet na scraperapi.com (7denní trial s 5 000 kredity, poté trvalý
+   free plán 1 000 kreditů/měsíc) a zkopíruj API klíč.
 2. Nastav `SCRAPER_API_KEY` v `.env` i na Netlify.
-3. Vyzkoušej – klidně bez `SCRAPER_API_PREMIUM` (běžná stránka stojí 1
-   kredit). Pokud dostáváš 403 i přes proxy, nastav `SCRAPER_API_PREMIUM=true`
-   (zapne dražší bypass mód, ~10 kreditů/request).
+3. `SCRAPER_API_PREMIUM` nech vypnutý – ScraperAPI si Heureku sám vyhodnotí
+   jako chráněnou doménu a i bez tohoto příznaku automaticky použije a
+   naúčtuje bypass režim. Zapnutí `premium=true` by sáhlo na jejich dražší
+   premium proxy pool navrch, ne na tohle – nepomůže to, jen to prodraží.
 
-**Odhad spotřeby kreditů**: scraper stahuje typicky 2 stránky za kontrolu
-(pagination se zastaví, jakmile na Heurece dojdou další modely). Při 2×
-denně automaticky + občasném ručním "Obnovit ceny" (max 8×/den kvůli
-3hodinovému limitu) je to řádově 4–20 requestů/den = 4–20 kreditů/den v
-základním režimu, klidně v mezích free plánu. V premium režimu (10 kreditů/
-request) to může být kolem 1200 kreditů/měsíc jen z automatických běhů – nad
-free plánem, čemuž je dobré předejít otestováním základního režimu jako
-prvního kroku. `sa-credit-cost` hlavička v odpovědi ScraperAPI ukazuje
-skutečnou cenu konkrétního requestu, pokud chceš spotřebu sledovat přesně.
+**Ověřená spotřeba kreditů** (z produkčního provozu): scraper stahuje 2
+stránky za kontrolu (pagination se zastaví, jakmile na Heurece dojdou další
+modely), každá stránka stojí 10 kreditů → **20 kreditů/kontrola**. Při 1×
+denně automaticky je to jen **~600 kreditů/měsíc** – pohodlně v mezích
+trvalého free plánu (1 000/měsíc), i s rezervou na občasné ruční "Obnovit
+ceny" (max 8×/den kvůli 3hodinovému limitu, +20 kreditů za klik). `sa-credit-
+cost` hlavička v odpovědi ScraperAPI ukazuje cenu konkrétního requestu,
+pokud chceš spotřebu sledovat přesně.
 
 Bez `SCRAPER_API_KEY` appka stahuje Heureku napřímo (funguje pro lokální
 vývoj). Pokud scraping i tak selže, kontrola se bez zápisu ukončí – nic se
 nepřepíše ani neodešle na Discord, další běh (za cca 12 hodin, nebo ruční
 klik) proběhne normálně.
+
+**Rychlost**: přes proxy trvá kontrola cca 10 s na stránku (ScraperAPI musí
+požadavek sám routovat přes bypass), tedy ~10–20 s za celou kontrolu. Do
+30sekundového limitu scheduled function se to vejde s rezervou, ale je to
+znatelně pomalejší než přímý fetch (ten trvá pod 2 s).
 
 ## Přehled produktů
 

@@ -45,7 +45,7 @@ export default async function Home() {
               AMD RX 9070 XT – hlídač cen
             </h1>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-              Ceny se stahují z Heureka.cz 2× denně. Poslední kontrola: {formatDate(lastRun)}
+              Ceny se stahují z Heureka.cz 1× denně odpoledne. Poslední kontrola: {formatDate(lastRun)}
             </p>
           </div>
 
